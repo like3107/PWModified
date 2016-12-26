@@ -80,6 +80,7 @@ int main(int argc, char **argv)
     google::LogToStderr();
     
     //start my own PW program.
+#if 1
     string fileName = "/Users/yanzixu/Downloads/TestImage.bmp";
     Mat input = cv::imread(fileName, CV_LOAD_IMAGE_GRAYSCALE);
     
@@ -93,6 +94,21 @@ int main(int argc, char **argv)
     YZX::YZX2DPowerWatershed(input, fgSeed, bgSeed, outResult);
     imshow("wnd", outResult*254);
     waitKey();
+#endif
+    
+    //generate image and seed.
+//    {
+//        string fileName = "/Users/yanzixu/Downloads/TestImage.bmp";
+//        Mat input = cv::imread(fileName, CV_LOAD_IMAGE_COLOR);
+//        cv::imwrite("TestImage.ppm", input);
+//    }
+//    
+//    string fileName = "/Users/yanzixu/Downloads/TestImage.bmp";
+//    Mat input = cv::imread(fileName, CV_LOAD_IMAGE_GRAYSCALE);
+//    input.setTo(Scalar(0));
+//    input.at<uchar>(150,150) = 255;
+//    input.at<uchar>(1,1) = 100;
+//    cv::imwrite("TestSeed.ppm", input);
     
     int algo =-1;
     char * image_name = NULL;
@@ -135,8 +151,12 @@ int main(int argc, char **argv)
     
     //default: mult = false, geodesic = false;
     //input of image name and multi_seeds name.
-    image_name = "/Users/yanzixu/Downloads/PW_1.0.1/BUILD/Release/images/2D/241004.ppm";
-    multi_seeds_name = "/Users/yanzixu/Downloads/PW_1.0.1/BUILD/Release/images/2D/seeds_241004_MULT.pgm"; //this seed image contains 15 different labels from 1 to 15
+//    image_name = "/Users/yanzixu/Downloads/PW_1.0.1/BUILD/Release/images/2D/241004.ppm";
+//    seeds_name = "/Users/yanzixu/Downloads/PW_1.0.1/BUILD/Release/images/2D/seeds_241004_MULT.pgm"; //this seed image contains 15 different labels from 1 to 15
+    
+    image_name = "/Users/yanzixu/Downloads/PW_1.0.1/BUILD/Release/TestImage.ppm";
+    seeds_name = "/Users/yanzixu/Downloads/PW_1.0.1/BUILD/Release/TestSeed.ppm";
+    
     algo = 2;//PW
     
     if(seeds_name ==NULL)
@@ -145,11 +165,11 @@ int main(int argc, char **argv)
         mult = true;
     }
     
-    Mat img = cv::imread(multi_seeds_name, CV_LOAD_IMAGE_GRAYSCALE);
-    double min,max;
-    min = max = -1;
-    cv::minMaxLoc(img, &min, &max);
-    cout<<"min = "<<min<<" max = "<<max<<endl;
+//    Mat img = cv::imread(multi_seeds_name, CV_LOAD_IMAGE_GRAYSCALE);
+//    double min,max;
+//    min = max = -1;
+//    cv::minMaxLoc(img, &min, &max);
+//    cout<<"min = "<<min<<" max = "<<max<<endl;
     //cv::imshow("output", img * 17);
     //waitKey(0);
     
@@ -253,7 +273,7 @@ int main(int argc, char **argv)
                 index_labels[j]=1;
                 j++;
             }
-            else if(s[i]<100)
+            else if(s[i] == 100)
             {
                 index_seeds[j] = i;
                 index_labels[j]=2;
@@ -273,6 +293,8 @@ int main(int argc, char **argv)
     edges =  (int**)malloc(2*sizeof(int*));
     for(i=0;i<2;i++) edges[i] = (int*)malloc(M*sizeof(int));
     compute_edges(edges,rs, cs, ds);
+    
+    cout<<"edge number = "<<M<<endl;
     
     if (algo == 2) // Kruskal & RW on plateaus multiseeds linear time
     {
@@ -296,6 +318,28 @@ int main(int argc, char **argv)
 #ifndef SPEEDY
         img_proba = allocimage(NULL, rs, cs, ds, VFF_TYP_1_BYTE);
 #endif
+        //test weight.
+        unsigned char* img_r = UCHARDATA(image_r);
+        for(int i=0; i<M; i++)
+        {
+            int e1 = edges[0][i];
+            int e2 = edges[1][i];
+            
+            //cout<<"e1 = "<<e1<<" e2 = "<<e2<<endl;
+            double diff = fabs(img_r[e1] - img_r[e2]);
+            double cweight = exp(-1.0 * diff * diff * (1.0/ (255.0*255.0)))*100000;
+            weights[i] = cweight;
+            normal_weights[i] = cweight;
+            max_weight = 100000;
+            
+            //cout<<"weight = "<<weights[i]<<endl;
+        }
+        
+        for(int i=0; i<size_seeds; i++)
+        {
+            cout<<"seed "<<i<<" idx = "<<index_seeds[i]<<" label = "<<(int)index_labels[i]<<endl;
+        }
+        
         /*
          edges =  (int**)malloc(2*sizeof(int*));
          for(i=0;i<2;i++) edges[i] = (int*)malloc(M*sizeof(int)); //edges是两个通道，2M，正反应该是一样的（无向图）。
@@ -313,6 +357,8 @@ int main(int argc, char **argv)
 #endif
         free(weights);
         free(normal_weights);
+        
+        cout<<"segmentation complete,"<<endl;
         
     }else{
         printf("%s\n","error, only PW is allowed.");

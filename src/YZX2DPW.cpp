@@ -1,6 +1,10 @@
 #include "../include/YZX2DPW.h"
-#include "../include/YZXPWSegmentation.h"
+//#include "../include/YZXPWSegmentation.h"
+#include "../include/YZXPWSegmentationV3.h"
 #include <glog/logging.h>
+
+using std::cout;
+using std::endl;
 
 namespace YZX {
     
@@ -37,8 +41,9 @@ namespace YZX {
             bgSeeds.push_back(Point3i(_bgSeeds[i].x,_bgSeeds[i].y,0));
         }
 
-        PWSegmentation pwSeg(inputItk, fgSeeds, bgSeeds);
+        YZXV3::PWSegmentation pwSeg(inputItk, fgSeeds, bgSeeds);
         pwSeg.Solve();
+        cout<<"solution complete."<<endl;
         
         //output
         output.create(input.rows, input.cols, CV_8UC1);

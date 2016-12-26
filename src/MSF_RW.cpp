@@ -38,6 +38,8 @@
  knowledge of the CeCILL license and that you accept its terms.
  */
 
+#include <iostream>
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/types.h>
@@ -52,6 +54,11 @@
 #include "../include/ccsort.h"
 #include "../include/powerwatsegm.h"
 #include "../include/random_walker.h"
+
+
+
+using std::cout;
+using std::endl;
 
 
 /*========================================================================================================*/
@@ -270,11 +277,17 @@ struct xvimage * PowerWatershed_q2(int ** edges,              /*array of node in
                 nb_edges ++;
             }
             
+            //cout<<"x = "<<x<<" e1 = "<<e1<<" e2 = "<<e2;
+            //cout<<" neighbors : ";
             for (k = 1; k <= nb_neighbor_edges; k++)
             {
+                
+                
                 if (ds>1)
                     y = neighbor_edge_3D(e1, e2, x, k, rs, cs, ds);
                 else y = neighbor_edge(x, k, rs, cs, ds);
+                
+                //cout<<y<<",";
                 if (y != -1)
                     if ((indic_P[y]==false) && (weights[y] == wmax))
                     {
@@ -284,6 +297,7 @@ struct xvimage * PowerWatershed_q2(int ** edges,              /*array of node in
                         indic_E[y]= true;
                     }
             }
+            //cout<<endl;
         }
         for (j=0;j<nb_vertices;j++)
             indic_VP[LCVP[j]]=0;

@@ -1,4 +1,4 @@
-#include "../include/YZXPWSegmentation.h"
+#include "../include/YZXPWSegmentationV2.h"
 //#include "../include/MSF_RW_YZX.h"
 
 #include <itkImageRegionIterator.h>
@@ -17,7 +17,7 @@
 #include "../include/powerwatsegm.h"
 #include "../include/random_walker.h"
 
-namespace YZX {
+namespace YZXV2 {
     
     void PWSegmentation::Solve()
     {
@@ -505,8 +505,8 @@ namespace YZX {
     
     double PWSegmentation::GetPixelValue(int vertIdx)
     {
-        CHECK_GE(vertIdx, 2);
-        CHECK_LT(vertIdx, this->totalVoxelNum + 2);
+        CHECK_GE(vertIdx, totalVoxelNum);
+        CHECK_LT(vertIdx, 2*this->totalVoxelNum);
         itk_3d_double::IndexType idx;
         int nx, ny, nz;
         Coordinate(vertIdx, nx, ny, nz);
@@ -517,15 +517,7 @@ namespace YZX {
     
     double PWSegmentation::UnarySource(int vertIdx)
     {
-        CHECK_GE(vertIdx, 2);
-        CHECK_LT(vertIdx, this->totalVoxelNum + 2);
-        
-        itk_3d_double::IndexType idx;
-        int nx, ny, nz;
-        Coordinate(vertIdx, nx, ny, nz);
-        idx[0] = nx; idx[1] = ny; idx[2] = nz;
-        double pix = this->inputImage->GetPixel(idx);
-        
+        double pix = GetPixelValue(vertIdx);
         //CV model, modification here.
         double magFactor = 100000 / (255.0*255.0);
         double C1 = 50;
@@ -534,15 +526,7 @@ namespace YZX {
     
     double PWSegmentation::UnarySink(int vertIdx)
     {
-        CHECK_GE(vertIdx, 2);
-        CHECK_LT(vertIdx, this->totalVoxelNum + 2);
-        
-        itk_3d_double::IndexType idx;
-        int nx, ny, nz;
-        Coordinate(vertIdx, nx, ny, nz);
-        idx[0] = nx; idx[1] = ny; idx[2] = nz;
-        double pix = this->inputImage->GetPixel(idx);
-        
+        double pix = GetPixelValue(vertIdx);
         //CV model, modification here.
         double magFactor = 100000 / (255.0*255.0);
         double C2 = 200;
@@ -557,26 +541,27 @@ namespace YZX {
         //for test, we use CV model, thus we have C1 and C2 avaliable.
         //double C1 = 200;
         //double C2 = 50;
+        this->weights = new WEIGHT_TYPE[this->edgeNum];
         
         //first, unary weight.
-        this->weights = new WEIGHT_TYPE[this->edgeNum];
-        for (int i=0; i<this->totalVoxelNum; i++) {
-            int vertIdx = edges[1][i]; //(0,i)=0是source.
-            this->weights[i] = UnarySource(vertIdx);
-        }
-        for (int i=totalVoxelNum; i<2*totalVoxelNum; i++) {
-            int vertIdx = edges[1][i]; //(0,i)=1是sink.
-            this->weights[i] = UnarySource(vertIdx);
-        }
-        
-        //next, binary weight.
-        for (int i=2*totalVoxelNum; i<this->edgeNum; i++) {
+        for (int i=0; i<totalVoxelNum; i++) {
             int e1 = edges[0][i];
             int e2 = edges[1][i];
+            CHECK_LT(e1, totalVoxelNum);
+            CHECK_GE(e2, totalVoxelNum);
             
+            this->weights[i] = UnarySink(e2);
+        }
+
+        
+        //next, binary weight.
+        for (int i= totalVoxelNum; i<this->edgeNum; i++) {
+            int e1 = edges[0][i];
+            int e2 = edges[1][i];
+            CHECK_GE(e1, totalVoxelNum);
+            CHECK_GE(e2, totalVoxelNum);
             double p1Val = GetPixelValue(e1);
             double p2Val = GetPixelValue(e2);
-            
             this->weights[i] = exp(-1.0 * beta * std::pow(p1Val-p2Val, 2)) * magFactor;
         }
         
@@ -592,37 +577,22 @@ namespace YZX {
     void PWSegmentation::GetNeighborhood(int vertIdx, int forbidEdgeIdx, vector<int> &neighborhoods)
     {
         
-        CHECK_LT(vertIdx, this->totalVoxelNum+2);
+        CHECK_LT(vertIdx, 2 * totalVoxelNum);
         CHECK_GE(vertIdx, 0);
-        int e1 = this->edges[0][forbidEdgeIdx];
-        int e2 = this->edges[1][forbidEdgeIdx];
-        CHECK( (e1 == vertIdx || e2 == vertIdx) );
+//        int e1 = this->edges[0][forbidEdgeIdx];
+//        int e2 = this->edges[1][forbidEdgeIdx];
+//        CHECK( (e1 == vertIdx || e2 == vertIdx) );
         
         neighborhoods.clear();
-        
-        if(vertIdx == 0)
+        //if source node
+        if(vertIdx < totalVoxelNum)
         {
-            //if source, add everything except forbidEdgeIdxes;
-//            for (int i=0; i<totalVoxelNum; i++) {
-//                if( i != forbidEdgeIdx)
-//                    neighborhoods.push_back(i);
-//            }
-            return;
-        }
-        
-        if(vertIdx == 1)
-        {
-            //if sink, add everything except forbidEdgeIdxes;
-//            for (int i=totalVoxelNum; i<2*totalVoxelNum; i++) {
-//                if (i != forbidEdgeIdx)
-//                {
-//                    neighborhoods.push_back(i);
-//                }
-//            }
+            neighborhoods.push_back(vertIdx + totalVoxelNum);
             return;
         }
         
         //ordinary node.
+        CHECK_GE(vertIdx, totalVoxelNum);
         int nx, ny, nz;
         Coordinate(vertIdx, nx, ny, nz);
         
@@ -632,16 +602,6 @@ namespace YZX {
         CHECK_LT(nx, imgDim[0]);
         CHECK_LT(ny, imgDim[1]);
         CHECK_LT(nz, imgDim[2]);
-        
-        //ordinary links.
-//        if(nx > 0 && Idx(nx-1, ny, nz) != forbidEdgeIdx) neighborhoods.push_back(Idx(nx-1, ny, nz));
-//        if(nx < imgDim[0] - 1 && Idx(nx+1, ny, nz) != forbidEdgeIdx) neighborhoods.push_back(Idx(nx+1, ny, nz));
-//        
-//        if(ny > 0 && Idx(nx, ny-1, nz) != forbidEdgeIdx) neighborhoods.push_back(Idx(nx, ny-1, nz));
-//        if(ny < imgDim[1] - 1 && Idx(nx, ny+1, nz) != forbidEdgeIdx) neighborhoods.push_back(Idx(nx, ny+1, nz));
-//        
-//        if(nz > 0 && Idx(nx, ny, nz-1) != forbidEdgeIdx) neighborhoods.push_back(Idx(nx, ny, nz-1));
-//        if(nz < imgDim[2] - 1 && Idx(nx, ny, nz+1) != forbidEdgeIdx) neighborhoods.push_back(Idx(nx, ny, nz+1));
 
         if(nx > 0) neighborhoods.push_back(Idx(nx-1, ny, nz));
         if(nx < imgDim[0] - 1) neighborhoods.push_back(Idx(nx+1, ny, nz));
@@ -653,15 +613,7 @@ namespace YZX {
         if(nz < imgDim[2] - 1) neighborhoods.push_back(Idx(nx, ny, nz+1));
         
         //source/sink links.
-        if(vertIdx - 2 != forbidEdgeIdx)
-        {
-            neighborhoods.push_back(vertIdx-2);
-        }
-        
-        if(vertIdx - 2 + totalVoxelNum != forbidEdgeIdx)
-        {
-            neighborhoods.push_back(vertIdx - 2 + totalVoxelNum);
-        }
+        neighborhoods.push_back(vertIdx - totalVoxelNum);
     }
     
     void PWSegmentation::GenerateNeighborhood(int edgeIdx, vector<int> &neighborhood)
@@ -692,6 +644,7 @@ namespace YZX {
         //delete [] edges;
     }
     
+    //一开始先是 totalVoxelNum 个VP点，然后是我们正常的点。
     int PWSegmentation::Idx(int x, int y, int z)
     {
         CHECK_GE(x, 0);
@@ -701,14 +654,15 @@ namespace YZX {
         CHECK_LT(y, imgDim[1]);
         CHECK_LT(z, imgDim[2]);
         
-        return x + y * imgDim[0] + z * imgDim[1] * imgDim[0] + 2;
+        return x + y * imgDim[0] + z * imgDim[1] * imgDim[0] + totalVoxelNum;
     }
+    
     
     void PWSegmentation::Coordinate(int Idx, int &x, int &y, int &z)
     {
-        CHECK_GE(Idx, 2);
-        CHECK_LT(Idx, 2+this->totalVoxelNum);
-        int actualIdx = Idx - 2;// = x + y * imgDim[2] + z * imgDim[1] * imgDim[2]
+        CHECK_GE(Idx, totalVoxelNum);
+        CHECK_LT(Idx, 2 * totalVoxelNum);
+        int actualIdx = Idx - totalVoxelNum;// = x (0) + y (1) * imgDim[0] + z (2) * imgDim[1] * imgDim[0]
         int dimXY = imgDim[0] * imgDim[1];
         z = actualIdx / dimXY;
         y = (actualIdx - z * dimXY) / imgDim[0];
@@ -722,24 +676,27 @@ namespace YZX {
         CHECK_LT(z, imgDim[2]);
     }
     
+    //这儿要重新写seed.
     void PWSegmentation::BuildSeed()
     {
-        this->seed_size = 2+this->fgSeeds.size() + this->bgSeeds.size();
+        this->seed_size = totalVoxelNum + this->fgSeeds.size() + this->bgSeeds.size();
         this->seed = new int[seed_size];
         this->labels = new unsigned char[seed_size];
         
-        //first hepatic.
+        //first source.
         int nCounter = 0;
-        seed[nCounter] = 0;//Source.
-        labels[nCounter++] = 1;
+        //add all vps.
+        for (int i=0; i<totalVoxelNum; i++) {
+            this->seed[nCounter] = i;
+            this->labels[nCounter++] = 1;
+        }
         for (int i=0; i<fgSeeds.size(); i++) {
             int fgIdx = Idx(fgSeeds[i].x, fgSeeds[i].y, fgSeeds[i].z);
             seed[nCounter] = fgIdx;
             labels[nCounter++] = 1;
         }
         
-        seed[nCounter] = 1;//Sink.
-        labels[nCounter++] = 2;
+        //then sink (bg)
         for (int i=0; i<bgSeeds.size(); i++) {
             int bgIdx = Idx(bgSeeds[i].x, bgSeeds[i].y, bgSeeds[i].z);
             seed[nCounter] = bgIdx;
@@ -784,7 +741,7 @@ namespace YZX {
     
     void PWSegmentation::BuildVertexesAndEdges()
     {
-        this->edgeNum = (imgDim[0]-1)*imgDim[1]*imgDim[2]+ imgDim[0]*(imgDim[1]-1)*imgDim[2] + imgDim[0]*imgDim[1]*(imgDim[2] -1)+ 2*totalVoxelNum; // edges inside image plus two virtual points connecting all voxels inside image.
+        this->edgeNum = (imgDim[0]-1)*imgDim[1]*imgDim[2]+ imgDim[0]*(imgDim[1]-1)*imgDim[2] + imgDim[0]*imgDim[1]*(imgDim[2] -1)+ totalVoxelNum; // edges inside image totalVoxelNum virtual points connecting all voxels inside image.
         this->edgeXOffset = (imgDim[0]-1)*imgDim[1]*imgDim[2];
         this->edgeYOffset = imgDim[0]*(imgDim[1]-1)*imgDim[2];
         
@@ -795,29 +752,14 @@ namespace YZX {
         
         int nCounter = 0;
         //allocate edges.
-        //first links with the source
-        for (int z=0; z<imgDim[2]; z++) {
-            for (int y=0; y<imgDim[1]; y++) {
-                for (int x=0; x<imgDim[0]; x++) {
-                    edges[0][nCounter] = 0;//Source
-                    edges[1][nCounter] = Idx(x, y, z);
-                    nCounter++;
-                }
-            }
+        //first, all vp edges.
+        for (int i=0; i<totalVoxelNum; i++) {
+            this->edges[0][i] = i;
+            this->edges[1][i] = i + totalVoxelNum;
+            nCounter++;
         }
         
-        //next links with the sink.
-        for (int z=0; z<imgDim[2]; z++) {
-            for (int y=0; y<imgDim[1]; y++) {
-                for (int x=0; x<imgDim[0]; x++) {
-                    edges[0][nCounter] = 1;//Source
-                    edges[1][nCounter] = Idx(x, y, z);
-                    nCounter++;
-                }
-            }
-        }
-        
-        //finally directional links.
+        //then directional links.
         //first x
         for (int z=0; z<imgDim[2]; z++) {
             for (int y=0; y<imgDim[1]; y++) {
