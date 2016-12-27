@@ -106,6 +106,7 @@ namespace YZXV2 {
         //graph-related functional.
         int**                    edges;//edges[0][i]-edges[1][i] represent a valid edge in graph.
         int                      edgeNum;//=M
+        int                      vertNum;//=N
         int                      edgeXOffset;
         int                      edgeYOffset;
         WEIGHT_TYPE*             weights;//input weights.
@@ -113,6 +114,10 @@ namespace YZXV2 {
         int*                     seed;//seed idx array.
         int                      seed_size;//size of the seed.
         unsigned char*           labels;//labels of current seeds starting from 1. size of label equals to size of seed.
+        
+        //two tables
+        vector<cv::Point3i>          idxCoordTable;//if current idx is virtual nodes, return Point3i(-1,-1,-1);
+        vector<vector<int> >         neighborhoodEdgesTable;// neighborhoodEdgesTable[i] represent the neighborhood edges of node with idx i;
         
         itk_3d_double::Pointer   resultImg;
         

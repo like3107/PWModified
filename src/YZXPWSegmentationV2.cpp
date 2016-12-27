@@ -17,6 +17,10 @@
 #include "../include/powerwatsegm.h"
 #include "../include/random_walker.h"
 
+using cv::Point3i;
+using std::cout;
+using std::endl;
+
 namespace YZXV2 {
     
     void PWSegmentation::Solve()
@@ -109,7 +113,7 @@ namespace YZXV2 {
     {
         std::string F_NAME = "PowerWatershed_q2";
         int i, j, k, x, y, e1, e2, re1,re2, p, xr;
-        int N = this->totalVoxelNum + 2;                /* number of vertices */
+        int N = this->vertNum;                /* number of vertices */
         int M = this->edgeNum;    /* number of edges*/
         double val;
         int argmax;
@@ -406,7 +410,8 @@ namespace YZXV2 {
         img_proba->FillBuffer(0);
         double maxi;
         itk_3d_double::IndexType coord;
-        for (j = 2; j < N; j++)//start from img idxes.
+        int nCounter = 0;
+        for (j = 0; j < N; j++)//start from img idxes.
         {
             maxi=0; argmax = 0; val =1;
             for(k=0; k< nb_labels-1;k++)
@@ -420,15 +425,19 @@ namespace YZXV2 {
             }
             if (val>maxi) argmax = k;
             double value = argmax / (nbLabels - 1);
+            Point3i pos = this->idxCoordTable[j];
             
-            int x,y,z;
-            Coordinate(j, x, y, z);
-            coord[0] = x;
-            coord[1] = y;
-            coord[2] = z;
-            img_proba->SetPixel(coord, value);
+            if(pos.x>=0)
+            {
+                coord[0] = pos.x;
+                coord[1] = pos.y;
+                coord[2] = pos.z;
+                img_proba->SetPixel(coord, value);
+                nCounter++;
+            }
         }
         
+        cout<<"in total "<<nCounter<<" pixels were set."<<endl;
         
         
 //        struct xvimage * temp;
@@ -505,12 +514,11 @@ namespace YZXV2 {
     
     double PWSegmentation::GetPixelValue(int vertIdx)
     {
-        CHECK_GE(vertIdx, totalVoxelNum);
-        CHECK_LT(vertIdx, 2*this->totalVoxelNum);
+        CHECK_LT(vertIdx, vertNum);
+        Point3i pos = idxCoordTable[vertIdx];
+        CHECK_GE(pos.x, 0);
         itk_3d_double::IndexType idx;
-        int nx, ny, nz;
-        Coordinate(vertIdx, nx, ny, nz);
-        idx[0] = nx; idx[1] = ny; idx[2] = nz;
+        idx[0] = pos.x; idx[1] = pos.y; idx[2] = pos.z;
         double pix = this->inputImage->GetPixel(idx);
         return pix;
     }
@@ -549,11 +557,11 @@ namespace YZXV2 {
             int e2 = edges[1][i];
             CHECK_LT(e1, totalVoxelNum);
             CHECK_GE(e2, totalVoxelNum);
-            
+            CHECK_GE(this->idxCoordTable[e2].x, 0);
             this->weights[i] = UnarySink(e2);
+            //this->weights[i] = 0;
         }
 
-        
         //next, binary weight.
         for (int i= totalVoxelNum; i<this->edgeNum; i++) {
             int e1 = edges[0][i];
@@ -563,6 +571,7 @@ namespace YZXV2 {
             double p1Val = GetPixelValue(e1);
             double p2Val = GetPixelValue(e2);
             this->weights[i] = exp(-1.0 * beta * std::pow(p1Val-p2Val, 2)) * magFactor;
+            //this->weights[i] = 0;
         }
         
         this->max_weight = 1;
@@ -576,44 +585,9 @@ namespace YZXV2 {
     
     void PWSegmentation::GetNeighborhood(int vertIdx, int forbidEdgeIdx, vector<int> &neighborhoods)
     {
-        
-        CHECK_LT(vertIdx, 2 * totalVoxelNum);
+        CHECK_LT(vertIdx, vertNum);
         CHECK_GE(vertIdx, 0);
-//        int e1 = this->edges[0][forbidEdgeIdx];
-//        int e2 = this->edges[1][forbidEdgeIdx];
-//        CHECK( (e1 == vertIdx || e2 == vertIdx) );
-        
-        neighborhoods.clear();
-        //if source node
-        if(vertIdx < totalVoxelNum)
-        {
-            neighborhoods.push_back(vertIdx + totalVoxelNum);
-            return;
-        }
-        
-        //ordinary node.
-        CHECK_GE(vertIdx, totalVoxelNum);
-        int nx, ny, nz;
-        Coordinate(vertIdx, nx, ny, nz);
-        
-        CHECK_GE(nx, 0);
-        CHECK_GE(ny, 0);
-        CHECK_GE(nz, 0);
-        CHECK_LT(nx, imgDim[0]);
-        CHECK_LT(ny, imgDim[1]);
-        CHECK_LT(nz, imgDim[2]);
-
-        if(nx > 0) neighborhoods.push_back(Idx(nx-1, ny, nz));
-        if(nx < imgDim[0] - 1) neighborhoods.push_back(Idx(nx+1, ny, nz));
-        
-        if(ny > 0) neighborhoods.push_back(Idx(nx, ny-1, nz));
-        if(ny < imgDim[1] - 1) neighborhoods.push_back(Idx(nx, ny+1, nz));
-        
-        if(nz > 0) neighborhoods.push_back(Idx(nx, ny, nz-1));
-        if(nz < imgDim[2] - 1) neighborhoods.push_back(Idx(nx, ny, nz+1));
-        
-        //source/sink links.
-        neighborhoods.push_back(vertIdx - totalVoxelNum);
+        neighborhoods = neighborhoodEdgesTable[vertIdx];
     }
     
     void PWSegmentation::GenerateNeighborhood(int edgeIdx, vector<int> &neighborhood)
@@ -637,11 +611,7 @@ namespace YZXV2 {
     
     PWSegmentation::~PWSegmentation()
     {
-//        delete [] seed;
-//        for (int i=0; i<2; i++) {
-//            delete [] edges[i];
-//        }
-        //delete [] edges;
+
     }
     
     //一开始先是 totalVoxelNum 个VP点，然后是我们正常的点。
@@ -660,20 +630,7 @@ namespace YZXV2 {
     
     void PWSegmentation::Coordinate(int Idx, int &x, int &y, int &z)
     {
-        CHECK_GE(Idx, totalVoxelNum);
-        CHECK_LT(Idx, 2 * totalVoxelNum);
-        int actualIdx = Idx - totalVoxelNum;// = x (0) + y (1) * imgDim[0] + z (2) * imgDim[1] * imgDim[0]
-        int dimXY = imgDim[0] * imgDim[1];
-        z = actualIdx / dimXY;
-        y = (actualIdx - z * dimXY) / imgDim[0];
-        x = actualIdx - z * dimXY - y * imgDim[0];
-        
-        CHECK_GE(x, 0);
-        CHECK_GE(y, 0);
-        CHECK_GE(z, 0);
-        CHECK_LT(x, imgDim[0]);
-        CHECK_LT(y, imgDim[1]);
-        CHECK_LT(z, imgDim[2]);
+        LOG(FATAL)<<"this function shall NEVER be called";
     }
     
     //这儿要重新写seed.
@@ -685,22 +642,25 @@ namespace YZXV2 {
         
         //first source.
         int nCounter = 0;
-        //add all vps.
+        //add all VPs.
         for (int i=0; i<totalVoxelNum; i++) {
             this->seed[nCounter] = i;
-            this->labels[nCounter++] = 1;
+            this->labels[nCounter] = 1;
+            nCounter++;
         }
         for (int i=0; i<fgSeeds.size(); i++) {
             int fgIdx = Idx(fgSeeds[i].x, fgSeeds[i].y, fgSeeds[i].z);
             seed[nCounter] = fgIdx;
-            labels[nCounter++] = 1;
+            labels[nCounter] = 1;
+            nCounter++;
         }
         
         //then sink (bg)
         for (int i=0; i<bgSeeds.size(); i++) {
             int bgIdx = Idx(bgSeeds[i].x, bgSeeds[i].y, bgSeeds[i].z);
             seed[nCounter] = bgIdx;
-            labels[nCounter++] = 2;
+            labels[nCounter] = 2;
+            nCounter++;
         }
         
         CHECK_EQ(nCounter, this->seed_size);
@@ -713,8 +673,8 @@ namespace YZXV2 {
         this->inputImage = itk_3d_double::New();
         DeepCopy(_inputImage, inputImage);
         
-        this->fgSeeds = fgSeeds;
-        this->bgSeeds = bgSeeds;
+        this->fgSeeds = _fgSeeds;
+        this->bgSeeds = _bgSeeds;
         itk_3d_double::SizeType sz = _inputImage->GetLargestPossibleRegion().GetSize();
         imgDim[0] = sz[0];
         imgDim[1] = sz[1];
@@ -737,11 +697,17 @@ namespace YZXV2 {
         GenerateWeight();
         
         std::cout<<"max weight = "<<this->max_weight<<std::endl;
+        cout<<"vertex number : "<<this->vertNum<<endl;
+        cout<<"edge number : "<<this->edgeNum<<endl;
+        
     }
     
     void PWSegmentation::BuildVertexesAndEdges()
     {
+        this->vertNum = 2*totalVoxelNum;//原图上的Voxel加上与之相等的VP的数量（为了做Unary term）。模型参考了论文：Anisotropic diffusion using power watersheds.
+        
         this->edgeNum = (imgDim[0]-1)*imgDim[1]*imgDim[2]+ imgDim[0]*(imgDim[1]-1)*imgDim[2] + imgDim[0]*imgDim[1]*(imgDim[2] -1)+ totalVoxelNum; // edges inside image totalVoxelNum virtual points connecting all voxels inside image.
+        
         this->edgeXOffset = (imgDim[0]-1)*imgDim[1]*imgDim[2];
         this->edgeYOffset = imgDim[0]*(imgDim[1]-1)*imgDim[2];
         
@@ -750,12 +716,23 @@ namespace YZXV2 {
             edges[i] = new int[this->edgeNum];
         }
         
+        idxCoordTable.resize(this->vertNum);
+        neighborhoodEdgesTable.resize(this->vertNum);
+        
         int nCounter = 0;
         //allocate edges.
         //first, all vp edges.
         for (int i=0; i<totalVoxelNum; i++) {
-            this->edges[0][i] = i;
-            this->edges[1][i] = i + totalVoxelNum;
+            int idx0 = i;
+            int idx1 = i + totalVoxelNum;
+            
+            this->edges[0][nCounter] = idx0;
+            this->edges[1][nCounter] = idx1;
+            
+            this->idxCoordTable[idx0] = cv::Point3i(-1,-1,-1);
+            this->neighborhoodEdgesTable[idx0].push_back(nCounter);
+            this->neighborhoodEdgesTable[idx1].push_back(nCounter);
+            
             nCounter++;
         }
         
@@ -764,8 +741,18 @@ namespace YZXV2 {
         for (int z=0; z<imgDim[2]; z++) {
             for (int y=0; y<imgDim[1]; y++) {
                 for (int x=0; x<imgDim[0]-1; x++) {
-                    edges[0][nCounter] = Idx(x, y, z);
-                    edges[1][nCounter] = Idx(x+1, y, z);
+                    int idx0 = Idx(x, y, z);
+                    int idx1 = Idx(x+1, y, z);
+                    
+                    edges[0][nCounter] = idx0;
+                    edges[1][nCounter] = idx1;
+                    
+                    this->idxCoordTable[idx0] = cv::Point3i(x,y,z);
+                    this->idxCoordTable[idx1] = cv::Point3i(x+1,y,z);
+                    
+                    this->neighborhoodEdgesTable[idx0].push_back(nCounter);
+                    this->neighborhoodEdgesTable[idx1].push_back(nCounter);
+                    
                     nCounter++;
                 }
             }
@@ -775,9 +762,25 @@ namespace YZXV2 {
         for (int z=0; z<imgDim[2]; z++) {
             for (int y=0; y<imgDim[1]-1; y++) {
                 for (int x=0; x<imgDim[0]; x++) {
-                    edges[0][nCounter] = Idx(x, y, z);
-                    edges[1][nCounter] = Idx(x, y+1, z);
+                    
+                    int idx0 = Idx(x, y, z);
+                    int idx1 = Idx(x, y+1, z);
+                    
+                    edges[0][nCounter] = idx0;
+                    edges[1][nCounter] = idx1;
+                    
+                    this->idxCoordTable[idx0] = cv::Point3i(x,y,z);
+                    this->idxCoordTable[idx1] = cv::Point3i(x,y+1,z);
+                    
+                    this->neighborhoodEdgesTable[idx0].push_back(nCounter);
+                    this->neighborhoodEdgesTable[idx1].push_back(nCounter);
+                    
                     nCounter++;
+
+                    
+//                    edges[0][nCounter] = Idx(x, y, z);
+//                    edges[1][nCounter] = Idx(x, y+1, z);
+//                    nCounter++;
                 }
             }
         }
@@ -785,14 +788,42 @@ namespace YZXV2 {
         for (int z=0; z<imgDim[2]-1; z++) {
             for (int y=0; y<imgDim[1]; y++) {
                 for (int x=0; x<imgDim[0]; x++) {
-                    edges[0][nCounter] = Idx(x, y, z);
-                    edges[1][nCounter] = Idx(x, y, z+1);
+                    
+                    int idx0 = Idx(x, y, z);
+                    int idx1 = Idx(x, y, z+1);
+                    
+                    edges[0][nCounter] = idx0;
+                    edges[1][nCounter] = idx1;
+                    
+                    this->idxCoordTable[idx0] = cv::Point3i(x,y,z);
+                    this->idxCoordTable[idx1] = cv::Point3i(x,y,z+1);
+                    
+                    this->neighborhoodEdgesTable[idx0].push_back(nCounter);
+                    this->neighborhoodEdgesTable[idx1].push_back(nCounter);
+                    
                     nCounter++;
+
+                    
+//                    edges[0][nCounter] = Idx(x, y, z);
+//                    edges[1][nCounter] = Idx(x, y, z+1);
+//                    nCounter++;
                 }
             }
         }
 
         CHECK_EQ(nCounter, edgeNum);
+        
+        //basic checks.
+        for (int z=0; z<imgDim[2]; z++) {
+            for (int y=0; y<imgDim[1]; y++) {
+                for (int x=0; x<imgDim[0]; x++) {
+                    int idx = Idx(x,y,z);
+                    Point3i hypPos = this->idxCoordTable[idx];
+                    CHECK_EQ(hypPos, Point3i(x,y,z));
+                }
+            }
+        }
+        
     }
     
     void PWSegmentation::DeepCopy(itk_3d_double::Pointer &input, itk_3d_double::Pointer &output)
